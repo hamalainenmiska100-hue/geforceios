@@ -77,24 +77,21 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
     }
 
     private func shouldKeepInsideWebView(_ url: URL) -> Bool {
+        return isHTTPScheme(url)
+    }
+
+    private func isHTTPScheme(_ url: URL) -> Bool {
         guard let scheme = url.scheme?.lowercased() else { return true }
-        if scheme == "http" || scheme == "https" { return true }
-        return false
+        return scheme == "http" || scheme == "https"
     }
 
     private func shouldOpenInSafariViewController(_ url: URL) -> Bool {
-        guard let scheme = url.scheme?.lowercased() else { return false }
-        if scheme == "http" || scheme == "https" {
-            return false
-        }
-        if ["mailto", "tel", "sms", "maps"].contains(scheme) {
-            return false
-        }
-        return true
+        // Keep navigation in-app; unsupported schemes are handled via UIApplication.open(_:).
+        return false
     }
 
     private func presentSafariPopup(for url: URL) {
-        guard safariController == nil else { return }
+        guard safariController == nil, isHTTPScheme(url) else { return }
 
         let configuration = SFSafariViewController.Configuration()
         configuration.entersReaderIfAvailable = false
