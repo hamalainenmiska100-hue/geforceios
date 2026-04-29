@@ -2,8 +2,9 @@ import UIKit
 import WebKit
 import SafariServices
 
-final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate {
+final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate, SFSafariViewControllerDelegate {
     private let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+    private var safariController: SFSafariViewController?
 
     private lazy var webView: WKWebView = {
         let config = WKWebViewConfiguration()
@@ -12,7 +13,6 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
 
         let userContentController = WKUserContentController()
         userContentController.add(self, name: "haptic")
-        userContentController.add(self, name: "external")
 
         let script = WKUserScript(source: Self.injectedScript, injectionTime: .atDocumentStart, forMainFrameOnly: false)
         userContentController.addUserScript(script)
@@ -52,15 +52,50 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
 
     private func loadGeForceNow() {
         guard let url = URL(string: "https://play.geforcenow.com/mall/") else { return }
-        webView.load(URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad, timeoutInterval: 30))
+        webView.load(URLRequest(url: url, cachePolicy: .reloadRevalidatingCacheData, timeoutInterval: 30))
     }
 
-    private func shouldOpenExternally(_ url: URL) -> Bool {
-        guard let host = url.host?.lowercased() else { return false }
-        return !host.hasSuffix("geforcenow.com")
+    func handleExternalReturn(url: URL) {
+        safariController?.dismiss(animated: true)
+        safariController = nil
+
+        if let callback = extractWebCallbackURL(from: url) {
+            webView.load(URLRequest(url: callback))
+        }
+    }
+
+    private func extractWebCallbackURL(from url: URL) -> URL? {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let encodedTarget = components.queryItems?.first(where: { $0.name == "target" })?.value,
+              let decoded = encodedTarget.removingPercentEncoding,
+              let callbackURL = URL(string: decoded),
+              ["http", "https"].contains(callbackURL.scheme?.lowercased() ?? "") else {
+            return nil
+        }
+
+        return callbackURL
+    }
+
+    private func shouldKeepInsideWebView(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased() else { return true }
+        if scheme == "http" || scheme == "https" { return true }
+        return false
+    }
+
+    private func shouldOpenInSafariViewController(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased() else { return false }
+        if scheme == "http" || scheme == "https" {
+            return false
+        }
+        if ["mailto", "tel", "sms", "maps"].contains(scheme) {
+            return false
+        }
+        return true
     }
 
     private func presentSafariPopup(for url: URL) {
+        guard safariController == nil else { return }
+
         let configuration = SFSafariViewController.Configuration()
         configuration.entersReaderIfAvailable = false
         configuration.barCollapsingEnabled = false
@@ -69,18 +104,21 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         safari.dismissButtonStyle = .close
         safari.preferredControlTintColor = .white
         safari.preferredBarTintColor = .black
+        safari.delegate = self
+        safariController = safari
         present(safari, animated: true)
+    }
+
+    func safariViewControllerDidFinish(_ controller: SFSafariViewController) {
+        if safariController === controller {
+            safariController = nil
+        }
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         if message.name == "haptic" {
             impactFeedback.impactOccurred()
             impactFeedback.prepare()
-            return
-        }
-
-        if message.name == "external", let urlString = message.body as? String, let url = URL(string: urlString) {
-            presentSafariPopup(for: url)
         }
     }
 
@@ -90,8 +128,16 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
             return
         }
 
-        if shouldOpenExternally(url) {
+        if shouldOpenInSafariViewController(url) {
             presentSafariPopup(for: url)
+            decisionHandler(.cancel)
+            return
+        }
+
+        if !shouldKeepInsideWebView(url) {
+            if UIApplication.shared.canOpenURL(url) {
+                UIApplication.shared.open(url)
+            }
             decisionHandler(.cancel)
             return
         }
@@ -100,28 +146,20 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
     }
 
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
-        if let url = navigationAction.request.url, shouldOpenExternally(url) {
-            presentSafariPopup(for: url)
+        if let targetURL = navigationAction.request.url {
+            webView.load(URLRequest(url: targetURL))
         }
         return nil
     }
 
     deinit {
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "haptic")
-        webView.configuration.userContentController.removeScriptMessageHandler(forName: "external")
     }
 
     private static let androidUserAgent = "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro Build/UQ1A.240205.002) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.82 Mobile Safari/537.36"
 
     private static let injectedScript = """
     (() => {
-      const openExternal = (url) => {
-        if (!url) return;
-        try {
-          window.webkit?.messageHandlers?.external?.postMessage(String(url));
-        } catch (_) {}
-      };
-
       const applyNativeLikeControls = () => {
         const meta = document.createElement('meta');
         meta.name = 'viewport';
@@ -181,24 +219,6 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
           return originalMatchMedia ? originalMatchMedia(query) : standaloneMql;
         };
 
-        const originalOpen = window.open?.bind(window);
-        window.open = (url, target, features) => {
-          if (typeof url === 'string' && /^https?:/i.test(url) && !/\\.geforcenow\\.com/i.test(url)) {
-            openExternal(url);
-            return null;
-          }
-          return originalOpen ? originalOpen(url, target, features) : null;
-        };
-
-        document.addEventListener('click', (event) => {
-          const link = event.target?.closest?.('a[href]');
-          if (!link) return;
-          const href = link.getAttribute('href');
-          if (!href || !/^https?:/i.test(href) || /\\.geforcenow\\.com/i.test(href)) return;
-          event.preventDefault();
-          openExternal(href);
-        }, true);
-
         try {
           Object.defineProperty(document, 'referrer', { get: () => 'android-app://com.nvidia.geforcenow', configurable: true });
         } catch (_) {}
@@ -217,22 +237,10 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         }, { passive: true, capture: true });
       };
 
-      const persistCookiesToStorage = () => {
-        const save = () => {
-          try {
-            localStorage.setItem('__gfn_cookie_cache', document.cookie);
-          } catch (_) {}
-        };
-
-        save();
-        setInterval(save, 2000);
-      };
-
       patchNavigator();
       patchPwaSignals();
       applyNativeLikeControls();
       installHaptics();
-      persistCookiesToStorage();
     })();
     """
 }

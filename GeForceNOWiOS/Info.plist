@@ -35,5 +35,16 @@
 	<string>GeForce Now</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.example.geforcenowios.callback</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>gfnios</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>
