@@ -5,11 +5,25 @@ import SafariServices
 final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate, SFSafariViewControllerDelegate {
     private let impactFeedback = UIImpactFeedbackGenerator(style: .light)
     private var safariController: SFSafariViewController?
+    private var webViewProgressObservation: NSKeyValueObservation?
+
+    private let loadingBar: UIProgressView = {
+        let progress = UIProgressView(progressViewStyle: .bar)
+        progress.translatesAutoresizingMaskIntoConstraints = false
+        progress.progressTintColor = UIColor(red: 0.46, green: 0.82, blue: 0.04, alpha: 1.0)
+        progress.trackTintColor = UIColor(white: 0.08, alpha: 0.9)
+        progress.progress = 0
+        progress.alpha = 0
+        return progress
+    }()
 
     private lazy var webView: WKWebView = {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
         config.preferences.javaScriptCanOpenWindowsAutomatically = true
+        config.allowsInlineMediaPlayback = true
+        config.allowsAirPlayForMediaPlayback = false
+        config.mediaTypesRequiringUserActionForPlayback = []
 
         let userContentController = WKUserContentController()
         userContentController.add(self, name: "haptic")
@@ -39,13 +53,19 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         view.backgroundColor = .black
 
         view.addSubview(webView)
+        view.addSubview(loadingBar)
         NSLayoutConstraint.activate([
             webView.topAnchor.constraint(equalTo: view.topAnchor),
             webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             webView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            webView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            webView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            loadingBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            loadingBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            loadingBar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+            loadingBar.heightAnchor.constraint(equalToConstant: 3)
         ])
 
+        observeWebViewProgress()
         impactFeedback.prepare()
         loadGeForceNow()
     }
@@ -53,6 +73,30 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
     private func loadGeForceNow() {
         guard let url = URL(string: "https://play.geforcenow.com/mall/") else { return }
         webView.load(URLRequest(url: url, cachePolicy: .reloadRevalidatingCacheData, timeoutInterval: 30))
+    }
+
+    private func observeWebViewProgress() {
+        webViewProgressObservation = webView.observe(\.estimatedProgress, options: [.new]) { [weak self] webView, _ in
+            self?.setLoadingProgress(Float(webView.estimatedProgress))
+        }
+    }
+
+    private func setLoadingProgress(_ progress: Float) {
+        let clampedProgress = max(0, min(progress, 1))
+        if loadingBar.alpha == 0 {
+            loadingBar.progress = 0
+            UIView.animate(withDuration: 0.15) { self.loadingBar.alpha = 1 }
+        }
+
+        loadingBar.setProgress(clampedProgress, animated: true)
+
+        if clampedProgress >= 1 {
+            UIView.animate(withDuration: 0.25, delay: 0.2, options: [.curveEaseOut]) {
+                self.loadingBar.alpha = 0
+            } completion: { _ in
+                self.loadingBar.progress = 0
+            }
+        }
     }
 
     func handleExternalReturn(url: URL) {
@@ -86,7 +130,6 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
     }
 
     private func shouldOpenInSafariViewController(_ url: URL) -> Bool {
-        // Keep navigation in-app; unsupported schemes are handled via UIApplication.open(_:).
         return false
     }
 
@@ -149,7 +192,24 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         return nil
     }
 
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        setLoadingProgress(0.05)
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        setLoadingProgress(1.0)
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        setLoadingProgress(1.0)
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        setLoadingProgress(1.0)
+    }
+
     deinit {
+        webViewProgressObservation?.invalidate()
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "haptic")
     }
 
@@ -179,6 +239,9 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
             -webkit-user-select: text !important;
             user-select: text !important;
           }
+          video {
+            object-fit: fill !important;
+          }
         `;
         document.head.appendChild(style);
       };
@@ -194,6 +257,24 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         override(navigator, 'maxTouchPoints', 10);
         override(navigator, 'userAgent', 'Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro Build/UQ1A.240205.002) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.82 Mobile Safari/537.36');
         override(navigator, 'standalone', true);
+      };
+
+      const forceInlineVideo = () => {
+        const apply = (video) => {
+          try {
+            video.setAttribute('playsinline', '');
+            video.setAttribute('webkit-playsinline', '');
+            video.removeAttribute('autoplay');
+            video.disablePictureInPicture = true;
+            video.controls = false;
+          } catch (_) {}
+        };
+
+        document.querySelectorAll('video').forEach(apply);
+        const observer = new MutationObserver(() => {
+          document.querySelectorAll('video').forEach(apply);
+        });
+        observer.observe(document.documentElement, { childList: true, subtree: true });
       };
 
       const patchPwaSignals = () => {
@@ -234,9 +315,10 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         }, { passive: true, capture: true });
       };
 
-      patchNavigator();
-      patchPwaSignals();
       applyNativeLikeControls();
+      patchNavigator();
+      forceInlineVideo();
+      patchPwaSignals();
       installHaptics();
     })();
     """
