@@ -1,0 +1,38 @@
+name: Build Unsigned IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build archive without signing
+        run: |
+          xcodebuild \
+            -project GeForceNOWiOS.xcodeproj \
+            -scheme GeForceNOWiOS \
+            -configuration Release \
+            -sdk iphoneos \
+            -archivePath "$PWD/build/GeForceNOWiOS.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            archive
+
+      - name: Package unsigned IPA
+        run: |
+          mkdir -p build/Payload
+          cp -R build/GeForceNOWiOS.xcarchive/Products/Applications/GeForceNOWiOS.app build/Payload/
+          cd build
+          /usr/bin/zip -r GeForceNOWiOS-unsigned.ipa Payload
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GeForceNOWiOS-unsigned-ipa
+          path: build/GeForceNOWiOS-unsigned.ipa
