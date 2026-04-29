@@ -183,7 +183,7 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
 
         const originalOpen = window.open?.bind(window);
         window.open = (url, target, features) => {
-          if (typeof url === 'string' && /^https?:/i.test(url) && !/\.geforcenow\.com/i.test(url)) {
+          if (typeof url === 'string' && /^https?:/i.test(url) && !/\\.geforcenow\\.com/i.test(url)) {
             openExternal(url);
             return null;
           }
@@ -194,7 +194,7 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
           const link = event.target?.closest?.('a[href]');
           if (!link) return;
           const href = link.getAttribute('href');
-          if (!href || !/^https?:/i.test(href) || /\.geforcenow\.com/i.test(href)) return;
+          if (!href || !/^https?:/i.test(href) || /\\.geforcenow\\.com/i.test(href)) return;
           event.preventDefault();
           openExternal(href);
         }, true);
