@@ -3,7 +3,13 @@ import WebKit
 import SafariServices
 
 final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate, SFSafariViewControllerDelegate {
-    private let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+    private let lightImpactFeedback = UIImpactFeedbackGenerator(style: .light)
+    private let mediumImpactFeedback = UIImpactFeedbackGenerator(style: .medium)
+    private let heavyImpactFeedback = UIImpactFeedbackGenerator(style: .heavy)
+    private let softImpactFeedback = UIImpactFeedbackGenerator(style: .soft)
+    private let rigidImpactFeedback = UIImpactFeedbackGenerator(style: .rigid)
+    private let selectionFeedback = UISelectionFeedbackGenerator()
+    private let notificationFeedback = UINotificationFeedbackGenerator()
     private var safariController: SFSafariViewController?
     private var webViewProgressObservation: NSKeyValueObservation?
 
@@ -66,8 +72,14 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         ])
 
         observeWebViewProgress()
-        impactFeedback.prepare()
+        prepareHaptics()
         loadGeForceNow()
+    }
+
+    private func prepareHaptics() {
+        [lightImpactFeedback, mediumImpactFeedback, heavyImpactFeedback, softImpactFeedback, rigidImpactFeedback].forEach { $0.prepare() }
+        selectionFeedback.prepare()
+        notificationFeedback.prepare()
     }
 
     private func loadGeForceNow() {
@@ -157,8 +169,40 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         if message.name == "haptic" {
-            impactFeedback.impactOccurred()
-            impactFeedback.prepare()
+            let type = message.body as? String ?? "tap"
+            playHaptic(type)
+        }
+    }
+
+    private func playHaptic(_ type: String) {
+        switch type {
+        case "selection":
+            selectionFeedback.selectionChanged()
+            selectionFeedback.prepare()
+        case "success":
+            notificationFeedback.notificationOccurred(.success)
+            notificationFeedback.prepare()
+        case "warning":
+            notificationFeedback.notificationOccurred(.warning)
+            notificationFeedback.prepare()
+        case "error":
+            notificationFeedback.notificationOccurred(.error)
+            notificationFeedback.prepare()
+        case "heavy":
+            heavyImpactFeedback.impactOccurred(intensity: 1.0)
+            heavyImpactFeedback.prepare()
+        case "medium":
+            mediumImpactFeedback.impactOccurred(intensity: 0.9)
+            mediumImpactFeedback.prepare()
+        case "rigid":
+            rigidImpactFeedback.impactOccurred(intensity: 1.0)
+            rigidImpactFeedback.prepare()
+        case "soft":
+            softImpactFeedback.impactOccurred(intensity: 0.8)
+            softImpactFeedback.prepare()
+        default:
+            lightImpactFeedback.impactOccurred(intensity: 0.7)
+            lightImpactFeedback.prepare()
         }
     }
 
@@ -194,18 +238,22 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         setLoadingProgress(0.05)
+        playHaptic("soft")
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         setLoadingProgress(1.0)
+        playHaptic("success")
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         setLoadingProgress(1.0)
+        playHaptic("warning")
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         setLoadingProgress(1.0)
+        playHaptic("error")
     }
 
     deinit {
@@ -256,7 +304,12 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         override(navigator, 'platform', 'Linux armv8l');
         override(navigator, 'maxTouchPoints', 10);
         override(navigator, 'userAgent', 'Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro Build/UQ1A.240205.002) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.82 Mobile Safari/537.36');
+        override(navigator, 'vendor', 'Google Inc.');
+        override(navigator, 'appVersion', '5.0 (Linux; Android 14; Pixel 8 Pro Build/UQ1A.240205.002) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.82 Mobile Safari/537.36');
         override(navigator, 'standalone', true);
+        override(navigator, 'webdriver', false);
+        override(navigator, 'language', 'en-US');
+        override(navigator, 'languages', ['en-US', 'en']);
       };
 
       const forceInlineVideo = () => {
@@ -300,19 +353,80 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         try {
           Object.defineProperty(document, 'referrer', { get: () => 'android-app://com.nvidia.geforcenow', configurable: true });
         } catch (_) {}
+
+        try {
+          Object.defineProperty(document, 'visibilityState', { get: () => 'visible', configurable: true });
+          Object.defineProperty(document, 'hidden', { get: () => false, configurable: true });
+        } catch (_) {}
+
+        const fauxManifest = {
+          name: 'GeForce NOW',
+          short_name: 'GFN',
+          display: 'standalone',
+          start_url: '/',
+          scope: '/',
+          theme_color: '#76b900',
+          background_color: '#000000'
+        };
+
+        const manifestBlob = new Blob([JSON.stringify(fauxManifest)], { type: 'application/manifest+json' });
+        const manifestUrl = URL.createObjectURL(manifestBlob);
+        let manifestEl = document.querySelector('link[rel="manifest"]');
+        if (!manifestEl) {
+          manifestEl = document.createElement('link');
+          manifestEl.setAttribute('rel', 'manifest');
+          document.head.appendChild(manifestEl);
+        }
+        manifestEl.setAttribute('href', manifestUrl);
+        navigator.getInstalledRelatedApps = () => Promise.resolve([
+          {
+            platform: 'webapp',
+            url: location.origin,
+            id: 'geforcenow-standalone'
+          }
+        ]);
+
+        if (!navigator.serviceWorker) {
+          Object.defineProperty(navigator, 'serviceWorker', {
+            configurable: true,
+            get: () => ({
+              controller: { state: 'activated' },
+              ready: Promise.resolve({ scope: location.origin + '/' }),
+              register: () => Promise.resolve({ scope: location.origin + '/' }),
+              getRegistration: () => Promise.resolve({ scope: location.origin + '/' }),
+              getRegistrations: () => Promise.resolve([{ scope: location.origin + '/' }]),
+              addEventListener: () => {},
+              removeEventListener: () => {}
+            })
+          });
+        }
       };
 
       const installHaptics = () => {
-        const trigger = () => window.webkit?.messageHandlers?.haptic?.postMessage('tap');
+        const trigger = (type = 'tap') => window.webkit?.messageHandlers?.haptic?.postMessage(type);
         const shouldTrigger = (el) => !!el.closest('button, [role="button"], a, input[type="button"], input[type="submit"]');
 
         document.addEventListener('pointerdown', (event) => {
-          if (shouldTrigger(event.target)) trigger();
+          if (shouldTrigger(event.target)) trigger('tap');
+        }, { passive: true, capture: true });
+
+        document.addEventListener('pointerup', (event) => {
+          if (shouldTrigger(event.target)) trigger('selection');
         }, { passive: true, capture: true });
 
         document.addEventListener('keydown', (event) => {
-          if ((event.key === 'Enter' || event.key === ' ') && shouldTrigger(event.target)) trigger();
+          if ((event.key === 'Enter' || event.key === ' ') && shouldTrigger(event.target)) trigger('medium');
         }, { passive: true, capture: true });
+
+        document.addEventListener('change', (event) => {
+          const target = event.target;
+          if (target?.matches?.('input, select, textarea')) trigger('selection');
+        }, { passive: true, capture: true });
+
+        document.addEventListener('submit', () => trigger('heavy'), { passive: true, capture: true });
+
+        window.addEventListener('error', () => trigger('warning'), { passive: true });
+        window.addEventListener('unhandledrejection', () => trigger('error'));
       };
 
       applyNativeLikeControls();
