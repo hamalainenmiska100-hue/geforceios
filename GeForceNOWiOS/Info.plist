@@ -31,6 +31,8 @@
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundleDisplayName</key>
+	<string>GeForce Now</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 </dict>

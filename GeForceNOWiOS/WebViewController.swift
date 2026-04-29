@@ -91,15 +91,41 @@ final class WebViewController: UIViewController, WKScriptMessageHandler {
       };
 
       const patchNavigator = () => {
-        const override = (prop, value) => {
+        const override = (target, prop, value) => {
           try {
-            Object.defineProperty(navigator, prop, { get: () => value, configurable: true });
+            Object.defineProperty(target, prop, { get: () => value, configurable: true });
           } catch (_) {}
         };
 
-        override('platform', 'Linux armv8l');
-        override('maxTouchPoints', 10);
-        override('userAgent', 'Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro Build/UQ1A.240205.002) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.82 Mobile Safari/537.36');
+        override(navigator, 'platform', 'Linux armv8l');
+        override(navigator, 'maxTouchPoints', 10);
+        override(navigator, 'userAgent', 'Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro Build/UQ1A.240205.002) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.82 Mobile Safari/537.36');
+        override(navigator, 'standalone', true);
+      };
+
+      const patchPwaSignals = () => {
+        const standaloneMql = {
+          matches: true,
+          media: '(display-mode: standalone)',
+          onchange: null,
+          addListener: () => {},
+          removeListener: () => {},
+          addEventListener: () => {},
+          removeEventListener: () => {},
+          dispatchEvent: () => false
+        };
+
+        const originalMatchMedia = window.matchMedia?.bind(window);
+        window.matchMedia = (query) => {
+          if (query === '(display-mode: standalone)' || query === '(display-mode: fullscreen)' || query === '(display-mode: minimal-ui)') {
+            return standaloneMql;
+          }
+          return originalMatchMedia ? originalMatchMedia(query) : standaloneMql;
+        };
+
+        try {
+          Object.defineProperty(document, 'referrer', { get: () => 'android-app://com.nvidia.geforcenow', configurable: true });
+        } catch (_) {}
       };
 
       const installHaptics = () => {
@@ -127,6 +153,7 @@ final class WebViewController: UIViewController, WKScriptMessageHandler {
       };
 
       patchNavigator();
+      patchPwaSignals();
       applyNativeLikeControls();
       installHaptics();
       persistCookiesToStorage();
