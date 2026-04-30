@@ -2,7 +2,7 @@ import UIKit
 import WebKit
 import SafariServices
 
-final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate, SFSafariViewControllerDelegate {
+final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate, SFSafariViewControllerDelegate, UIGestureRecognizerDelegate {
     private let lightImpactFeedback = UIImpactFeedbackGenerator(style: .light)
     private let mediumImpactFeedback = UIImpactFeedbackGenerator(style: .medium)
     private let heavyImpactFeedback = UIImpactFeedbackGenerator(style: .heavy)
@@ -12,6 +12,10 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
     private let notificationFeedback = UINotificationFeedbackGenerator()
     private var safariController: SFSafariViewController?
     private var webViewProgressObservation: NSKeyValueObservation?
+
+    private let defaultKeyboardCombos = ["Shift+F", "Ctrl+Shift+Esc", "Alt+Tab", "W", "A", "S", "D", "Space", "Enter"]
+    private var keyboardOverlayCombos: [String] = []
+    private var overlayMenuView: UIView?
 
     private let loadingBar: UIProgressView = {
         let progress = UIProgressView(progressViewStyle: .bar)
@@ -33,6 +37,7 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
 
         let userContentController = WKUserContentController()
         userContentController.add(self, name: "haptic")
+        userContentController.add(self, name: "keyboardOverlay")
 
         let script = WKUserScript(source: Self.injectedScript, injectionTime: .atDocumentStart, forMainFrameOnly: false)
         userContentController.addUserScript(script)
@@ -73,6 +78,7 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
 
         observeWebViewProgress()
         prepareHaptics()
+        setupThreeFingerMenuGesture()
         loadGeForceNow()
     }
 
@@ -110,6 +116,147 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
             }
         }
     }
+
+    private func setupThreeFingerMenuGesture() {
+        keyboardOverlayCombos = defaultKeyboardCombos
+        let gesture = UITapGestureRecognizer(target: self, action: #selector(handleThreeFingerTap))
+        gesture.numberOfTouchesRequired = 3
+        gesture.delegate = self
+        gesture.cancelsTouchesInView = false
+        view.addGestureRecognizer(gesture)
+    }
+
+    @objc private func handleThreeFingerTap() {
+        playHaptic("rigid")
+        if overlayMenuView != nil {
+            closeOverlayMenu()
+        } else {
+            presentOverlayMenu()
+        }
+    }
+
+    private func presentOverlayMenu() {
+        let container = UIView(frame: view.bounds)
+        container.backgroundColor = UIColor.black.withAlphaComponent(0.72)
+        container.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+
+        let card = UIView()
+        card.translatesAutoresizingMaskIntoConstraints = false
+        card.backgroundColor = UIColor(white: 0.12, alpha: 0.96)
+        card.layer.cornerRadius = 16
+
+        let title = UILabel()
+        title.translatesAutoresizingMaskIntoConstraints = false
+        title.text = "Keyboard Overlay"
+        title.textColor = .white
+        title.font = .boldSystemFont(ofSize: 20)
+
+        let close = UIButton(type: .system)
+        close.translatesAutoresizingMaskIntoConstraints = false
+        close.setTitle("✕", for: .normal)
+        close.titleLabel?.font = .boldSystemFont(ofSize: 24)
+        close.tintColor = .white
+        close.addAction(UIAction { [weak self] _ in self?.closeOverlayMenu() }, for: .touchUpInside)
+
+        let stack = UIStackView()
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.axis = .vertical
+        stack.spacing = 8
+
+        for combo in keyboardOverlayCombos {
+            stack.addArrangedSubview(makeComboButton(combo: combo))
+        }
+
+        let input = UITextField()
+        input.translatesAutoresizingMaskIntoConstraints = false
+        input.backgroundColor = UIColor(white: 0.2, alpha: 1.0)
+        input.textColor = .white
+        input.autocorrectionType = .no
+        input.autocapitalizationType = .none
+        input.placeholder = "Add combo (e.g. Shift+F)"
+        input.attributedPlaceholder = NSAttributedString(string: "Add combo (e.g. Shift+F)", attributes: [.foregroundColor: UIColor.lightGray])
+        input.layer.cornerRadius = 10
+        input.setLeftPaddingPoints(10)
+
+        let addButton = UIButton(type: .system)
+        addButton.translatesAutoresizingMaskIntoConstraints = false
+        addButton.setTitle("Add Overlay", for: .normal)
+        addButton.tintColor = .white
+        addButton.backgroundColor = UIColor(red: 0.46, green: 0.82, blue: 0.04, alpha: 1.0)
+        addButton.layer.cornerRadius = 10
+        addButton.addAction(UIAction { [weak self, weak input, weak stack] _ in
+            guard let self, let text = input?.text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return }
+            self.keyboardOverlayCombos.append(text)
+            stack?.addArrangedSubview(self.makeComboButton(combo: text))
+            input?.text = nil
+            self.playHaptic("selection")
+        }, for: .touchUpInside)
+
+        container.addSubview(card)
+        card.addSubview(title)
+        card.addSubview(close)
+        card.addSubview(stack)
+        card.addSubview(input)
+        card.addSubview(addButton)
+
+        NSLayoutConstraint.activate([
+            card.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
+            card.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
+            card.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+
+            title.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
+            title.topAnchor.constraint(equalTo: card.topAnchor, constant: 16),
+
+            close.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
+            close.centerYAnchor.constraint(equalTo: title.centerYAnchor),
+
+            stack.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 12),
+            stack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
+
+            input.topAnchor.constraint(equalTo: stack.bottomAnchor, constant: 14),
+            input.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
+            input.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
+            input.heightAnchor.constraint(equalToConstant: 40),
+
+            addButton.topAnchor.constraint(equalTo: input.bottomAnchor, constant: 10),
+            addButton.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
+            addButton.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
+            addButton.heightAnchor.constraint(equalToConstant: 42),
+            addButton.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -16)
+        ])
+
+        view.addSubview(container)
+        overlayMenuView = container
+    }
+
+    private func closeOverlayMenu() {
+        overlayMenuView?.removeFromSuperview()
+        overlayMenuView = nil
+    }
+
+    private func makeComboButton(combo: String) -> UIButton {
+        let button = UIButton(type: .system)
+        button.setTitle(combo, for: .normal)
+        button.heightAnchor.constraint(equalToConstant: 36).isActive = true
+        button.backgroundColor = UIColor(white: 0.22, alpha: 1.0)
+        button.layer.cornerRadius = 8
+        button.tintColor = .white
+        button.addAction(UIAction { [weak self] _ in
+            self?.sendKeyboardCombo(combo)
+            self?.playHaptic("medium")
+        }, for: .touchUpInside)
+        return button
+    }
+
+    private func sendKeyboardCombo(_ combo: String) {
+        let escaped = combo
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        webView.evaluateJavaScript("window.__nativeKeyboardOverlayDispatch && window.__nativeKeyboardOverlayDispatch(\"\(escaped)\")")
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool { true }
 
     func handleExternalReturn(url: URL) {
         safariController?.dismiss(animated: true)
@@ -259,6 +406,7 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
     deinit {
         webViewProgressObservation?.invalidate()
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "haptic")
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: "keyboardOverlay")
     }
 
     private static let androidUserAgent = "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro Build/UQ1A.240205.002) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.82 Mobile Safari/537.36"
@@ -307,6 +455,7 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         override(navigator, 'vendor', 'Google Inc.');
         override(navigator, 'appVersion', '5.0 (Linux; Android 14; Pixel 8 Pro Build/UQ1A.240205.002) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.82 Mobile Safari/537.36');
         override(navigator, 'standalone', true);
+        override(window, 'isSecureContext', true);
         override(navigator, 'webdriver', false);
         override(navigator, 'language', 'en-US');
         override(navigator, 'languages', ['en-US', 'en']);
@@ -402,6 +551,28 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         }
       };
 
+      const installKeyboardOverlayBridge = () => {
+        window.__nativeKeyboardOverlayDispatch = (combo) => {
+          if (!combo || typeof combo !== 'string') return;
+          const parts = combo.split('+').map(part => part.trim()).filter(Boolean);
+          const key = parts[parts.length - 1] || '';
+          const lower = parts.map(part => part.toLowerCase());
+          const options = {
+            key,
+            bubbles: true,
+            cancelable: true,
+            ctrlKey: lower.includes('ctrl') || lower.includes('control'),
+            shiftKey: lower.includes('shift'),
+            altKey: lower.includes('alt') || lower.includes('option'),
+            metaKey: lower.includes('meta') || lower.includes('cmd') || lower.includes('command')
+          };
+          const active = document.activeElement || document.body;
+          active.dispatchEvent(new KeyboardEvent('keydown', options));
+          active.dispatchEvent(new KeyboardEvent('keypress', options));
+          active.dispatchEvent(new KeyboardEvent('keyup', options));
+        };
+      };
+
       const installHaptics = () => {
         const trigger = (type = 'tap') => window.webkit?.messageHandlers?.haptic?.postMessage(type);
         const shouldTrigger = (el) => !!el.closest('button, [role="button"], a, input[type="button"], input[type="submit"]');
@@ -433,7 +604,17 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
       patchNavigator();
       forceInlineVideo();
       patchPwaSignals();
+      installKeyboardOverlayBridge();
       installHaptics();
     })();
     """
+}
+
+
+private extension UITextField {
+    func setLeftPaddingPoints(_ amount: CGFloat) {
+        let paddingView = UIView(frame: CGRect(x: 0, y: 0, width: amount, height: frame.size.height))
+        leftView = paddingView
+        leftViewMode = .always
+    }
 }
