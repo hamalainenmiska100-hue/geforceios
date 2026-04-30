@@ -13,20 +13,33 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
     private var safariController: SFSafariViewController?
     private var webViewProgressObservation: NSKeyValueObservation?
 
-    private struct OverlayCombo {
-        let id = UUID()
+    private struct OverlayCombo: Codable {
+        var id: UUID
         var title: String
         var enabled: Bool
         var isCustom: Bool
+
+        init(id: UUID = UUID(), title: String, enabled: Bool, isCustom: Bool) {
+            self.id = id
+            self.title = title
+            self.enabled = enabled
+            self.isCustom = isCustom
+        }
+    }
+
+    private struct OverlayButtonPosition: Codable {
+        var x: CGFloat
+        var y: CGFloat
     }
 
     private let defaultKeyboardCombos = ["Shift+F", "Ctrl+Shift+Esc", "Alt+Tab", "W", "A", "S", "D", "Space", "Enter"]
     private var overlayCombos: [OverlayCombo] = []
     private var overlayMenuView: UIView?
-    private var overlayButtonPanel: UIView?
-    private var buttonPanelWidthConstraint: NSLayoutConstraint?
-    private var buttonPanelHeightConstraint: NSLayoutConstraint?
-    private var buttonPanelButtonsStack: UIStackView?
+    private var overlayButtons: [UUID: UIButton] = [:]
+    private var overlayButtonPositions: [UUID: OverlayButtonPosition] = [:]
+
+    private let combosDefaultsKey = "overlayCombos.v1"
+    private let positionsDefaultsKey = "overlayButtons.positions.v1"
 
     private let loadingBar: UIProgressView = {
         let progress = UIProgressView(progressViewStyle: .bar)
@@ -62,7 +75,7 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         webView.scrollView.alwaysBounceHorizontal = false
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.allowsBackForwardNavigationGestures = false
-        webView.customUserAgent = Self.androidUserAgent
+        webView.customUserAgent = Self.iOSPwaUserAgent
         return webView
     }()
 
@@ -89,7 +102,8 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         observeWebViewProgress()
         prepareHaptics()
         setupThreeFingerMenuGesture()
-        setupOverlayButtonPanel()
+        loadOverlayState()
+        setupOverlayButtons()
         loadGeForceNow()
     }
 
@@ -129,7 +143,6 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
     }
 
     private func setupThreeFingerMenuGesture() {
-        overlayCombos = defaultKeyboardCombos.map { OverlayCombo(title: $0, enabled: true, isCustom: false) }
         let gesture = UITapGestureRecognizer(target: self, action: #selector(handleThreeFingerTap))
         gesture.numberOfTouchesRequired = 3
         gesture.delegate = self
@@ -193,8 +206,9 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         addButton.addAction(UIAction { [weak self, weak input, weak stack] _ in
             guard let self, let text = input?.text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return }
             self.overlayCombos.append(OverlayCombo(title: text, enabled: true, isCustom: true))
+            self.saveOverlayState()
             self.renderMenuRows(in: stack)
-            self.refreshOverlayPanelButtons()
+            self.refreshOverlayButtons()
             input?.text = nil
             self.playHaptic("selection")
         }, for: .touchUpInside)
@@ -269,7 +283,8 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
             guard let self, let i = self.overlayCombos.firstIndex(where: { $0.id == combo.id }) else { return }
             self.overlayCombos[i].enabled.toggle()
             if let superStack = row?.superview as? UIStackView { self.renderMenuRows(in: superStack) }
-            self.refreshOverlayPanelButtons()
+            self.saveOverlayState()
+            self.refreshOverlayButtons()
         }, for: .touchUpInside)
         row.addArrangedSubview(toggle)
 
@@ -280,7 +295,8 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
                 guard let self else { return }
                 self.overlayCombos.removeAll(where: { $0.id == combo.id })
                 if let superStack = row?.superview as? UIStackView { self.renderMenuRows(in: superStack) }
-                self.refreshOverlayPanelButtons()
+                self.saveOverlayState()
+                self.refreshOverlayButtons()
                 self.playHaptic("warning")
             }, for: .touchUpInside)
             row.addArrangedSubview(delete)
@@ -297,61 +313,73 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         return button
     }
 
-    private func setupOverlayButtonPanel() {
-        let panel = UIView()
-        panel.translatesAutoresizingMaskIntoConstraints = false
-        panel.backgroundColor = UIColor.black.withAlphaComponent(0.55)
-        view.addSubview(panel)
-        buttonPanelWidthConstraint = panel.widthAnchor.constraint(equalToConstant: 180)
-        buttonPanelHeightConstraint = panel.heightAnchor.constraint(equalToConstant: 220)
-        NSLayoutConstraint.activate([
-            panel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
-            panel.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12),
-            buttonPanelWidthConstraint!, buttonPanelHeightConstraint!
-        ])
-        let stack = UIStackView()
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.axis = .vertical
-        stack.spacing = 4
-        panel.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: panel.topAnchor, constant: 8),
-            stack.leadingAnchor.constraint(equalTo: panel.leadingAnchor, constant: 8),
-            stack.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -8),
-            stack.bottomAnchor.constraint(equalTo: panel.bottomAnchor, constant: -20)
-        ])
-        let handle = UIView()
-        handle.translatesAutoresizingMaskIntoConstraints = false
-        handle.backgroundColor = .white
-        panel.addSubview(handle)
-        NSLayoutConstraint.activate([
-            handle.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -2),
-            handle.bottomAnchor.constraint(equalTo: panel.bottomAnchor, constant: -2),
-            handle.widthAnchor.constraint(equalToConstant: 14),
-            handle.heightAnchor.constraint(equalToConstant: 14)
-        ])
-        handle.addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(handlePanelResizePan(_:))))
-        buttonPanelButtonsStack = stack
-        overlayButtonPanel = panel
-        refreshOverlayPanelButtons()
+    private func setupOverlayButtons() {
+        refreshOverlayButtons()
     }
 
-    @objc private func handlePanelResizePan(_ gesture: UIPanGestureRecognizer) {
-        let t = gesture.translation(in: view)
-        let w = max(120, min(360, (buttonPanelWidthConstraint?.constant ?? 180) + t.x))
-        let h = max(120, min(500, (buttonPanelHeightConstraint?.constant ?? 220) + t.y))
-        buttonPanelWidthConstraint?.constant = w
-        buttonPanelHeightConstraint?.constant = h
-        gesture.setTranslation(.zero, in: view)
-    }
+    private func refreshOverlayButtons() {
+        for button in overlayButtons.values {
+            button.removeFromSuperview()
+        }
+        overlayButtons.removeAll()
 
-    private func refreshOverlayPanelButtons() {
-        guard let stack = buttonPanelButtonsStack else { return }
-        stack.arrangedSubviews.forEach { v in stack.removeArrangedSubview(v); v.removeFromSuperview() }
         for combo in overlayCombos where combo.enabled {
-            let button = makeSimpleButton(title: combo.title, bg: UIColor(white: 0.2, alpha: 1))
+            let button = makeSimpleButton(title: combo.title, bg: UIColor.black.withAlphaComponent(0.6))
+            button.translatesAutoresizingMaskIntoConstraints = true
+            button.heightAnchor.constraint(equalToConstant: 40).isActive = true
             button.addAction(UIAction { [weak self] _ in self?.sendKeyboardCombo(combo.title); self?.playHaptic("light") }, for: .touchUpInside)
-            stack.addArrangedSubview(button)
+            let pan = UIPanGestureRecognizer(target: self, action: #selector(handleOverlayButtonPan(_:)))
+            button.addGestureRecognizer(pan)
+            button.tag = overlayCombos.firstIndex(where: { $0.id == combo.id }) ?? -1
+            view.addSubview(button)
+            overlayButtons[combo.id] = button
+
+            let position = overlayButtonPositions[combo.id]
+            let x = position?.x ?? (view.bounds.width - 90)
+            let y = position?.y ?? (view.safeAreaInsets.top + 120 + CGFloat(overlayButtons.count * 48))
+            button.frame = CGRect(x: x - 45, y: y - 20, width: 90, height: 40)
+        }
+    }
+
+    @objc private func handleOverlayButtonPan(_ gesture: UIPanGestureRecognizer) {
+        guard let button = gesture.view as? UIButton else { return }
+        let translation = gesture.translation(in: view)
+        button.center = CGPoint(x: button.center.x + translation.x, y: button.center.y + translation.y)
+        gesture.setTranslation(.zero, in: view)
+
+        if gesture.state == .ended {
+            button.center.x = min(max(45, button.center.x), view.bounds.width - 45)
+            button.center.y = min(max(view.safeAreaInsets.top + 20, button.center.y), view.bounds.height - view.safeAreaInsets.bottom - 20)
+            if let combo = overlayCombos.first(where: { overlayButtons[$0.id] === button }) {
+                overlayButtonPositions[combo.id] = OverlayButtonPosition(x: button.center.x, y: button.center.y)
+                saveOverlayState()
+            }
+        }
+    }
+
+    private func loadOverlayState() {
+        let defaults = UserDefaults.standard
+        if let data = defaults.data(forKey: combosDefaultsKey),
+           let decoded = try? JSONDecoder().decode([OverlayCombo].self, from: data),
+           !decoded.isEmpty {
+            overlayCombos = decoded
+        } else {
+            overlayCombos = defaultKeyboardCombos.map { OverlayCombo(title: $0, enabled: false, isCustom: false) }
+        }
+
+        if let data = defaults.data(forKey: positionsDefaultsKey),
+           let decoded = try? JSONDecoder().decode([UUID: OverlayButtonPosition].self, from: data) {
+            overlayButtonPositions = decoded
+        }
+    }
+
+    private func saveOverlayState() {
+        let defaults = UserDefaults.standard
+        if let data = try? JSONEncoder().encode(overlayCombos) {
+            defaults.set(data, forKey: combosDefaultsKey)
+        }
+        if let data = try? JSONEncoder().encode(overlayButtonPositions) {
+            defaults.set(data, forKey: positionsDefaultsKey)
         }
     }
 
@@ -514,7 +542,7 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "haptic")
     }
 
-    private static let androidUserAgent = "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro Build/UQ1A.240205.002) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.82 Mobile Safari/537.36"
+    private static let iOSPwaUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1"
 
     private static let injectedScript = """
     (() => {
@@ -554,11 +582,11 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
           } catch (_) {}
         };
 
-        override(navigator, 'platform', 'Linux armv8l');
+        override(navigator, 'platform', 'iPhone');
         override(navigator, 'maxTouchPoints', 10);
-        override(navigator, 'userAgent', 'Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro Build/UQ1A.240205.002) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.82 Mobile Safari/537.36');
-        override(navigator, 'vendor', 'Google Inc.');
-        override(navigator, 'appVersion', '5.0 (Linux; Android 14; Pixel 8 Pro Build/UQ1A.240205.002) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.82 Mobile Safari/537.36');
+        override(navigator, 'userAgent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1');
+        override(navigator, 'vendor', 'Apple Computer, Inc.');
+        override(navigator, 'appVersion', '5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1');
         override(navigator, 'standalone', true);
         override(window, 'isSecureContext', true);
         override(navigator, 'webdriver', false);
@@ -605,7 +633,7 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         };
 
         try {
-          Object.defineProperty(document, 'referrer', { get: () => 'android-app://com.nvidia.geforcenow', configurable: true });
+          Object.defineProperty(document, 'referrer', { get: () => 'https://play.geforcenow.com/', configurable: true });
         } catch (_) {}
 
         try {
