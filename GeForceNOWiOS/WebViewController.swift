@@ -542,7 +542,7 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "haptic")
     }
 
-    private static let iOSPwaUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1"
+    private static let iOSPwaUserAgent = "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
 
     private static let injectedScript = """
     (() => {
@@ -582,11 +582,11 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
           } catch (_) {}
         };
 
-        override(navigator, 'platform', 'iPhone');
+        override(navigator, 'platform', 'Linux armv8l');
         override(navigator, 'maxTouchPoints', 10);
-        override(navigator, 'userAgent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1');
-        override(navigator, 'vendor', 'Apple Computer, Inc.');
-        override(navigator, 'appVersion', '5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1');
+        override(navigator, 'userAgent', 'Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36');
+        override(navigator, 'vendor', 'Google Inc.');
+        override(navigator, 'appVersion', '5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36');
         override(navigator, 'standalone', true);
         override(window, 'isSecureContext', true);
         override(navigator, 'webdriver', false);
