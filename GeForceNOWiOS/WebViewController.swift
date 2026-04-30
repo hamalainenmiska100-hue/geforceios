@@ -73,6 +73,19 @@ final class WebViewController: UIViewController, WKScriptMessageHandler {
         playHaptic(type)
     }
 
+
+    func handleExternalReturn(url: URL) {
+        if webView.url?.scheme?.hasPrefix("http") == true {
+            let jsURL = url.absoluteString
+                .replacingOccurrences(of: "\", with: "\\")
+                .replacingOccurrences(of: """, with: "\"")
+            let script = "window.dispatchEvent(new CustomEvent('gfn-external-return', { detail: { url: \"\(jsURL)\" } }));"
+            webView.evaluateJavaScript(script, completionHandler: nil)
+        }
+
+        webView.load(URLRequest(url: url))
+    }
+
     private func playHaptic(_ type: String) {
         switch type {
         case "selection":
