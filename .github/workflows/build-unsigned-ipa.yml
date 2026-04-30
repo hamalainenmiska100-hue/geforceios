@@ -29,7 +29,7 @@ jobs:
           set -euo pipefail
           sw_vers
           xcodebuild -version
-          xcrun simctl list devices | head -n 20
+          xcrun simctl list devices | sed -n "1,20p"
 
       - name: Validate project and scheme
         run: |
