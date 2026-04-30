@@ -58,12 +58,19 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
+          MODULE_CACHE_DIR="$PWD/build/ModuleCache.noindex"
+          DERIVED_DATA_DIR="$PWD/build/DerivedData"
+          rm -rf "$MODULE_CACHE_DIR" "$DERIVED_DATA_DIR"
+          mkdir -p "$MODULE_CACHE_DIR" "$DERIVED_DATA_DIR"
           xcodebuild \
             -project GeForceNOWiOS.xcodeproj \
             -scheme GeForceNOWiOS \
             -configuration Release \
             -sdk iphoneos \
+            -derivedDataPath "$DERIVED_DATA_DIR" \
             -archivePath "$PWD/build/GeForceNOWiOS.xcarchive" \
+            CLANG_MODULE_CACHE_PATH="$MODULE_CACHE_DIR" \
+            SWIFT_MODULECACHE_PATH="$MODULE_CACHE_DIR" \
             CODE_SIGNING_ALLOWED=NO \
             clean archive
 
@@ -74,12 +81,18 @@ jobs:
           echo "First build failed. Attempting automatic cleanup + rebuild..."
           rm -rf ~/Library/Developer/Xcode/DerivedData
           rm -rf "$PWD/build"
+          MODULE_CACHE_DIR="$PWD/build/ModuleCache.noindex"
+          DERIVED_DATA_DIR="$PWD/build/DerivedData"
+          mkdir -p "$MODULE_CACHE_DIR" "$DERIVED_DATA_DIR"
           xcodebuild \
             -project GeForceNOWiOS.xcodeproj \
             -scheme GeForceNOWiOS \
             -configuration Release \
             -sdk iphoneos \
+            -derivedDataPath "$DERIVED_DATA_DIR" \
             -archivePath "$PWD/build/GeForceNOWiOS.xcarchive" \
+            CLANG_MODULE_CACHE_PATH="$MODULE_CACHE_DIR" \
+            SWIFT_MODULECACHE_PATH="$MODULE_CACHE_DIR" \
             CODE_SIGNING_ALLOWED=NO \
             clean archive
 
