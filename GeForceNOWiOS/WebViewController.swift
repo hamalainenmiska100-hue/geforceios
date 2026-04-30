@@ -51,6 +51,18 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         return progress
     }()
 
+    private let statusBanner: UILabel = {
+        let label = UILabel()
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.backgroundColor = UIColor(red: 0.33, green: 0.06, blue: 0.06, alpha: 0.95)
+        label.textColor = .white
+        label.font = .systemFont(ofSize: 13, weight: .semibold)
+        label.textAlignment = .center
+        label.numberOfLines = 2
+        label.alpha = 0
+        return label
+    }()
+
     private lazy var webView: WKWebView = {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
@@ -88,6 +100,7 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
 
         view.addSubview(webView)
         view.addSubview(loadingBar)
+        view.addSubview(statusBanner)
         NSLayoutConstraint.activate([
             webView.topAnchor.constraint(equalTo: view.topAnchor),
             webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -96,7 +109,10 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
             loadingBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             loadingBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             loadingBar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
-            loadingBar.heightAnchor.constraint(equalToConstant: 3)
+            loadingBar.heightAnchor.constraint(equalToConstant: 3),
+            statusBanner.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+            statusBanner.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            statusBanner.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12)
         ])
 
         observeWebViewProgress()
@@ -105,6 +121,11 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         loadOverlayState()
         setupOverlayButtons()
         loadGeForceNow()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        repositionOverlayButtonsWithinBounds()
     }
 
     private func prepareHaptics() {
@@ -185,6 +206,19 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.axis = .vertical
         stack.spacing = 6
+        let scroll = UIScrollView()
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.alwaysBounceVertical = true
+        scroll.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
+            stack.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
+            stack.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor)
+        ])
+
         renderMenuRows(in: stack)
 
         let input = UITextField()
@@ -205,7 +239,13 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         addButton.backgroundColor = UIColor(white: 0.25, alpha: 1.0)
         addButton.addAction(UIAction { [weak self, weak input, weak stack] _ in
             guard let self, let text = input?.text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return }
-            self.overlayCombos.append(OverlayCombo(title: text, enabled: true, isCustom: true))
+            let normalized = self.normalizeCombo(text)
+            guard !normalized.isEmpty else { return }
+            guard !self.overlayCombos.contains(where: { $0.title.caseInsensitiveCompare(normalized) == .orderedSame }) else {
+                self.playHaptic("warning")
+                return
+            }
+            self.overlayCombos.append(OverlayCombo(title: normalized, enabled: true, isCustom: true))
             self.saveOverlayState()
             self.renderMenuRows(in: stack)
             self.refreshOverlayButtons()
@@ -213,12 +253,25 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
             self.playHaptic("selection")
         }, for: .touchUpInside)
 
+        let resetButton = UIButton(type: .system)
+        resetButton.translatesAutoresizingMaskIntoConstraints = false
+        resetButton.setTitle("Reset Defaults", for: .normal)
+        resetButton.tintColor = .white
+        resetButton.backgroundColor = UIColor(red: 0.30, green: 0.1, blue: 0.1, alpha: 1)
+        resetButton.addAction(UIAction { [weak self, weak stack] _ in
+            self?.resetOverlayState()
+            self?.renderMenuRows(in: stack)
+            self?.refreshOverlayButtons()
+            self?.playHaptic("warning")
+        }, for: .touchUpInside)
+
         container.addSubview(card)
         card.addSubview(title)
         card.addSubview(close)
-        card.addSubview(stack)
+        card.addSubview(scroll)
         card.addSubview(input)
         card.addSubview(addButton)
+        card.addSubview(resetButton)
 
         NSLayoutConstraint.activate([
             card.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
@@ -231,11 +284,12 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
             close.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
             close.centerYAnchor.constraint(equalTo: title.centerYAnchor),
 
-            stack.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 12),
-            stack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
-            stack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
+            scroll.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 12),
+            scroll.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
+            scroll.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
+            scroll.heightAnchor.constraint(lessThanOrEqualToConstant: 300),
 
-            input.topAnchor.constraint(equalTo: stack.bottomAnchor, constant: 14),
+            input.topAnchor.constraint(equalTo: scroll.bottomAnchor, constant: 14),
             input.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
             input.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
             input.heightAnchor.constraint(equalToConstant: 40),
@@ -244,7 +298,11 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
             addButton.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
             addButton.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
             addButton.heightAnchor.constraint(equalToConstant: 42),
-            addButton.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -16)
+            resetButton.topAnchor.constraint(equalTo: addButton.bottomAnchor, constant: 10),
+            resetButton.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
+            resetButton.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
+            resetButton.heightAnchor.constraint(equalToConstant: 38),
+            resetButton.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -16)
         ])
 
         view.addSubview(container)
@@ -328,6 +386,9 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
             button.translatesAutoresizingMaskIntoConstraints = true
             button.heightAnchor.constraint(equalToConstant: 40).isActive = true
             button.addAction(UIAction { [weak self] _ in self?.sendKeyboardCombo(combo.title); self?.playHaptic("light") }, for: .touchUpInside)
+            let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleOverlayButtonLongPress(_:)))
+            longPress.minimumPressDuration = 0.8
+            button.addGestureRecognizer(longPress)
             let pan = UIPanGestureRecognizer(target: self, action: #selector(handleOverlayButtonPan(_:)))
             button.addGestureRecognizer(pan)
             button.tag = overlayCombos.firstIndex(where: { $0.id == combo.id }) ?? -1
@@ -357,6 +418,33 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         }
     }
 
+    @objc private func handleOverlayButtonLongPress(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began else { return }
+        playHaptic("heavy")
+        webView.reload()
+    }
+
+    private func repositionOverlayButtonsWithinBounds() {
+        for (id, button) in overlayButtons {
+            let clamped = CGPoint(
+                x: min(max(45, button.center.x), view.bounds.width - 45),
+                y: min(max(view.safeAreaInsets.top + 20, button.center.y), view.bounds.height - view.safeAreaInsets.bottom - 20)
+            )
+            if clamped != button.center {
+                button.center = clamped
+                overlayButtonPositions[id] = OverlayButtonPosition(x: clamped.x, y: clamped.y)
+            }
+        }
+    }
+
+    private func normalizeCombo(_ combo: String) -> String {
+        combo
+            .split(separator: "+")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "+")
+    }
+
     private func loadOverlayState() {
         let defaults = UserDefaults.standard
         if let data = defaults.data(forKey: combosDefaultsKey),
@@ -371,6 +459,12 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
            let decoded = try? JSONDecoder().decode([UUID: OverlayButtonPosition].self, from: data) {
             overlayButtonPositions = decoded
         }
+    }
+
+    private func resetOverlayState() {
+        overlayCombos = defaultKeyboardCombos.map { OverlayCombo(title: $0, enabled: false, isCustom: false) }
+        overlayButtonPositions.removeAll()
+        saveOverlayState()
     }
 
     private func saveOverlayState() {
@@ -518,6 +612,7 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        hideStatusBanner()
         setLoadingProgress(0.05)
         playHaptic("soft")
     }
@@ -529,12 +624,24 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         setLoadingProgress(1.0)
+        showStatusBanner("Load failed. 3-finger tap for menu, then long-press any overlay key to reload.")
         playHaptic("warning")
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         setLoadingProgress(1.0)
+        showStatusBanner("Connection issue: \(error.localizedDescription)")
         playHaptic("error")
+    }
+
+    private func showStatusBanner(_ text: String) {
+        statusBanner.text = "  \(text)  "
+        UIView.animate(withDuration: 0.2) { self.statusBanner.alpha = 1.0 }
+    }
+
+    private func hideStatusBanner() {
+        guard statusBanner.alpha > 0 else { return }
+        UIView.animate(withDuration: 0.2) { self.statusBanner.alpha = 0.0 }
     }
 
     deinit {
