@@ -127,12 +127,12 @@ final class WebViewController: UIViewController, WKScriptMessageHandler {
     private static let injectedScript = """
     (() => {
       const applyNativeLikeControls = () => {
-        const meta = document.createElement('meta');
-        meta.name = 'viewport';
-        meta.content = 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover';
+        const meta = document.createElement("meta");
+        meta.name = "viewport";
+        meta.content = "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover";
         document.head.appendChild(meta);
 
-        const style = document.createElement('style');
+        const style = document.createElement("style");
         style.innerHTML = `
           * {
             -webkit-user-select: none !important;
@@ -144,7 +144,7 @@ final class WebViewController: UIViewController, WKScriptMessageHandler {
             overscroll-behavior: none !important;
             touch-action: manipulation !important;
           }
-          input, textarea, [contenteditable='true'] {
+          input, textarea, [contenteditable="true"] {
             -webkit-user-select: text !important;
             user-select: text !important;
           }
@@ -159,16 +159,16 @@ final class WebViewController: UIViewController, WKScriptMessageHandler {
           } catch (_) {}
         };
 
-        override(navigator, 'platform', 'Linux armv8l');
-        override(navigator, 'maxTouchPoints', 10);
-        override(navigator, 'userAgent', 'Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro Build/UQ1A.240205.002) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.82 Mobile Safari/537.36');
-        override(navigator, 'standalone', true);
+        override(navigator, "platform", "Linux armv8l");
+        override(navigator, "maxTouchPoints", 10);
+        override(navigator, "userAgent", "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro Build/UQ1A.240205.002) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.82 Mobile Safari/537.36");
+        override(navigator, "standalone", true);
       };
 
       const patchPwaSignals = () => {
         const standaloneMql = {
           matches: true,
-          media: '(display-mode: standalone)',
+          media: "(display-mode: standalone)",
           onchange: null,
           addListener: () => {},
           removeListener: () => {},
@@ -179,34 +179,34 @@ final class WebViewController: UIViewController, WKScriptMessageHandler {
 
         const originalMatchMedia = window.matchMedia?.bind(window);
         window.matchMedia = (query) => {
-          if (query === '(display-mode: standalone)' || query === '(display-mode: fullscreen)' || query === '(display-mode: minimal-ui)') {
+          if (query === "(display-mode: standalone)" || query === "(display-mode: fullscreen)" || query === "(display-mode: minimal-ui)") {
             return standaloneMql;
           }
           return originalMatchMedia ? originalMatchMedia(query) : standaloneMql;
         };
 
         try {
-          Object.defineProperty(document, 'referrer', { get: () => 'android-app://com.nvidia.geforcenow', configurable: true });
+          Object.defineProperty(document, "referrer", { get: () => "android-app://com.nvidia.geforcenow", configurable: true });
         } catch (_) {}
       };
 
       const installHaptics = () => {
-        const trigger = (type = 'tap') => window.webkit?.messageHandlers?.haptic?.postMessage(type);
-        const shouldTrigger = (el) => !!el.closest('button, [role="button"], a, input[type="button"], input[type="submit"]');
+        const trigger = (type = "tap") => window.webkit?.messageHandlers?.haptic?.postMessage(type);
+        const shouldTrigger = (el) => !!el.closest("button, [role=\"button\"], a, input[type=\"button\"], input[type=\"submit\"]");
 
-        document.addEventListener('pointerdown', (event) => {
-          if (shouldTrigger(event.target)) trigger('light');
+        document.addEventListener("pointerdown", (event) => {
+          if (shouldTrigger(event.target)) trigger("light");
         }, { passive: true, capture: true });
 
-        document.addEventListener('keydown', (event) => {
-          if ((event.key === 'Enter' || event.key === ' ') && shouldTrigger(event.target)) trigger('selection');
+        document.addEventListener("keydown", (event) => {
+          if ((event.key === "Enter" || event.key === " ") && shouldTrigger(event.target)) trigger("selection");
         }, { passive: true, capture: true });
       };
 
       const persistCookiesToStorage = () => {
         const save = () => {
           try {
-            localStorage.setItem('__gfn_cookie_cache', document.cookie);
+            localStorage.setItem("__gfn_cookie_cache", document.cookie);
           } catch (_) {}
         };
 
