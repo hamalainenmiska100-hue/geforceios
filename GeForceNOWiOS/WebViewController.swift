@@ -87,7 +87,7 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         webView.scrollView.alwaysBounceHorizontal = false
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.allowsBackForwardNavigationGestures = false
-        webView.customUserAgent = Self.iOSPwaUserAgent
+        webView.customUserAgent = Self.spoofedDesktopChromeUserAgent
         return webView
     }()
 
@@ -649,7 +649,7 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "haptic")
     }
 
-    private static let iOSPwaUserAgent = "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+    private static let spoofedDesktopChromeUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.207 Safari/537.36"
 
     private static let injectedScript = """
     (() => {
@@ -689,16 +689,49 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
           } catch (_) {}
         };
 
-        override(navigator, 'platform', 'Linux armv8l');
-        override(navigator, 'maxTouchPoints', 10);
-        override(navigator, 'userAgent', 'Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36');
+        override(navigator, 'platform', 'MacIntel');
+        override(navigator, 'maxTouchPoints', 5);
+        override(navigator, 'userAgent', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.207 Safari/537.36');
         override(navigator, 'vendor', 'Google Inc.');
-        override(navigator, 'appVersion', '5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36');
+        override(navigator, 'appVersion', '5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.207 Safari/537.36');
+        override(navigator, 'productSub', '20030107');
+        override(navigator, 'oscpu', 'Intel Mac OS X 14_5');
+        override(navigator, 'deviceMemory', 8);
+        override(navigator, 'hardwareConcurrency', 8);
         override(navigator, 'standalone', true);
         override(window, 'isSecureContext', true);
         override(navigator, 'webdriver', false);
         override(navigator, 'language', 'en-US');
         override(navigator, 'languages', ['en-US', 'en']);
+
+        const uaData = {
+          brands: [
+            { brand: 'Chromium', version: '124' },
+            { brand: 'Google Chrome', version: '124' },
+            { brand: 'Not.A/Brand', version: '99' }
+          ],
+          mobile: false,
+          platform: 'macOS',
+          getHighEntropyValues: async (hints) => {
+            const entropy = {
+              architecture: 'x86',
+              bitness: '64',
+              model: '',
+              platform: 'macOS',
+              platformVersion: '14.5.0',
+              uaFullVersion: '124.0.6367.207',
+              wow64: false
+            };
+            if (!Array.isArray(hints)) return entropy;
+            return hints.reduce((acc, hint) => {
+              if (hint in entropy) acc[hint] = entropy[hint];
+              return acc;
+            }, {});
+          }
+        };
+        override(navigator, 'userAgentData', uaData);
+        override(window, 'chrome', { runtime: {}, webstore: {}, app: {} });
+        override(window, 'safari', undefined);
       };
 
       const forceInlineVideo = () => {
