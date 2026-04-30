@@ -77,8 +77,8 @@ final class WebViewController: UIViewController, WKScriptMessageHandler {
     func handleExternalReturn(url: URL) {
         if webView.url?.scheme?.hasPrefix("http") == true {
             let jsURL = url.absoluteString
-                .replacingOccurrences(of: "\", with: "\\")
-                .replacingOccurrences(of: """, with: "\"")
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
             let script = "window.dispatchEvent(new CustomEvent('gfn-external-return', { detail: { url: \"\(jsURL)\" } }));"
             webView.evaluateJavaScript(script, completionHandler: nil)
         }
